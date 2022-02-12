@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
+	"os/exec"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v2"
@@ -34,7 +38,16 @@ func main() {
 	}
 	monitor.writeToConsole = *writeToConsole
 
-	fmt.Println("Go monitor running")
+	fmt.Println("monitoring")
+
+	// create an error channel for each process being monitored
+	pErrChan := make(chan error, len(monitor.Processes))
+	var wg sync.WaitGroup
+	for _, k := range monitor.Processes {
+		wg.Add(1)
+		fmt.Println("monitoring process:", k)
+		monitor.checkProcess(k, pErrChan, &wg)
+	}
 
 }
 
@@ -71,4 +84,31 @@ func (monitor *Monitor) validate() error {
 	}
 
 	return nil
+}
+
+func (monitor *Monitor) checkProcess(processName string, errChan chan error, wg *sync.WaitGroup) {
+	fmt.Println("checking for process", processName)
+
+	cmd1 := exec.Command("ps", "aux")
+	cmd2 := exec.Command("grep", processName)
+
+	// connect the ps and grep commands
+	r, w := io.Pipe()
+	cmd1.Stdout = w
+	cmd2.Stdin = r
+
+	// create a buffer for reads and writes
+	var b2 bytes.Buffer
+	cmd2.Stdout = &b2
+
+	cmd1.Start()
+	cmd2.Start()
+	cmd1.Wait()
+	w.Close()
+	cmd2.Wait()
+
+	// check the output
+	fmt.Println(&b2)
+
+	defer wg.Done()
 }
