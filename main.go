@@ -5,10 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,16 +38,19 @@ func main() {
 	}
 	monitor.writeToConsole = *writeToConsole
 
-	fmt.Println("monitoring")
+	fmt.Println("begin monitoring")
 
 	// create an error channel for each process being monitored
 	pErrChan := make(chan error, len(monitor.Processes))
 	var wg sync.WaitGroup
 	for _, k := range monitor.Processes {
 		wg.Add(1)
-		fmt.Println("monitoring process:", k)
-		monitor.checkProcess(k, pErrChan, &wg)
+		//fmt.Println("monitoring process:", k)
+		// this goroutine will run indefinitely
+		go monitor.checkProcess(k, pErrChan, &wg)
 	}
+
+	wg.Wait()
 
 }
 
@@ -87,28 +90,50 @@ func (monitor *Monitor) validate() error {
 }
 
 func (monitor *Monitor) checkProcess(processName string, errChan chan error, wg *sync.WaitGroup) {
-	fmt.Println("checking for process", processName)
+	fmt.Println("monitoring for process", processName)
 
-	cmd1 := exec.Command("ps", "aux")
-	cmd2 := exec.Command("grep", processName)
+	counter := 0
+	// buffers to compare against changes in processes
+	var b1 bytes.Buffer
+	var b2 string
 
-	// connect the ps and grep commands
-	r, w := io.Pipe()
-	cmd1.Stdout = w
-	cmd2.Stdin = r
+	//repCmd := ""
 
-	// create a buffer for reads and writes
-	var b2 bytes.Buffer
-	cmd2.Stdout = &b2
+	for {
 
-	cmd1.Start()
-	cmd2.Start()
-	cmd1.Wait()
-	w.Close()
-	cmd2.Wait()
+		cmd := exec.Command("pgrep", "-l", processName)
+
+		// create a buffer for reads and writes
+		cmd.Stdout = &b1
+
+		cmd.Start()
+		cmd.Wait()
+
+		if counter == 0 {
+			b2 = b1.String()
+			counter++
+			b1.Reset()
+			continue
+		}
+
+		// compare previous output to current output
+		// react to changes in status
+		// fmt.Println("b1", b1.String())
+		// fmt.Println("b2", b2)
+		// fmt.Println("comparing", strings.Compare(b1.String(), b2))
+		if strings.Compare(b1.String(), b2) != 0 {
+			log.Fatal(processName, " changed status")
+		}
+		b2 = b1.String()
+
+		time.Sleep(time.Second * 1)
+		counter++
+		//fmt.Println("Have monitored", processName, " for ", counter, "seconds")
+		b1.Reset()
+	}
 
 	// check the output
-	fmt.Println(&b2)
+	//fmt.Println(&b2)
 
 	defer wg.Done()
 }
