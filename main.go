@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -29,7 +30,7 @@ func main() {
 
 	defaultConfigFile := "./go-monitor.yml"
 	configFile := flag.String("c", defaultConfigFile, fmt.Sprintf("config file path, default = %s", defaultConfigFile))
-	writeToConsole := flag.Bool("o", false, fmt.Sprintf("output, if true will write to console"))
+	writeToConsole := flag.Bool("o", false, "output, if true will write to console")
 	flag.Parse()
 
 	monitor, err := createMonitorFromFile(*configFile)
@@ -38,17 +39,29 @@ func main() {
 	}
 	monitor.writeToConsole = *writeToConsole
 
-	fmt.Println("begin monitoring")
+	server, err := monitor.serverInfo()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("begin monitoring on server:", server)
 
 	// create an error channel for each process being monitored
-	pErrChan := make(chan error, len(monitor.Processes))
+	pErrChan := make(chan string, len(monitor.Processes))
 	var wg sync.WaitGroup
 	for _, k := range monitor.Processes {
 		wg.Add(1)
-		//fmt.Println("monitoring process:", k)
 		// this goroutine will run indefinitely
-		go monitor.checkProcess(k, pErrChan, &wg)
+		go monitor.monitorProcess(k, pErrChan, &wg)
 	}
+
+	// read the results from the error channel
+	go func() {
+		for {
+			pErr := <-pErrChan
+			go monitor.notifyErr(pErr, server, monitor.Config.Recipients)
+		}
+	}()
 
 	wg.Wait()
 
@@ -89,21 +102,25 @@ func (monitor *Monitor) validate() error {
 	return nil
 }
 
-func (monitor *Monitor) checkProcess(processName string, errChan chan error, wg *sync.WaitGroup) {
+func (monitor *Monitor) serverInfo() (server string, err error) {
+	server, err = os.Hostname()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return
+}
+
+func (monitor *Monitor) monitorProcess(processName string, errChan chan string, wg *sync.WaitGroup) {
 	fmt.Println("monitoring for process", processName)
 
 	counter := 0
-	// buffers to compare against changes in processes
 	var b1 bytes.Buffer
 	var b2 string
 
-	//repCmd := ""
-
 	for {
-
 		cmd := exec.Command("pgrep", "-l", processName)
-
-		// create a buffer for reads and writes
+		// use the byte buffer for writing process list
 		cmd.Stdout = &b1
 
 		cmd.Start()
@@ -115,25 +132,25 @@ func (monitor *Monitor) checkProcess(processName string, errChan chan error, wg 
 			b1.Reset()
 			continue
 		}
-
 		// compare previous output to current output
 		// react to changes in status
-		// fmt.Println("b1", b1.String())
-		// fmt.Println("b2", b2)
-		// fmt.Println("comparing", strings.Compare(b1.String(), b2))
 		if strings.Compare(b1.String(), b2) != 0 {
-			log.Fatal(processName, " changed status")
+			errChan <- fmt.Sprintf("something changed with %s", processName)
+			break
 		}
 		b2 = b1.String()
 
+		// check every second
 		time.Sleep(time.Second * 1)
 		counter++
-		//fmt.Println("Have monitored", processName, " for ", counter, "seconds")
+		// reset the buffer
 		b1.Reset()
 	}
 
-	// check the output
-	//fmt.Println(&b2)
-
 	defer wg.Done()
+}
+
+func (monitor *Monitor) notifyErr(proc, server, recipient string) {
+	// send a notification to the appropriate party
+
 }
