@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/smtp"
 	"os"
 	"os/exec"
 	"strings"
@@ -136,7 +137,6 @@ func (monitor *Monitor) monitorProcess(processName string, errChan chan string, 
 		// react to changes in status
 		if strings.Compare(b1.String(), b2) != 0 {
 			errChan <- fmt.Sprintf("something changed with %s", processName)
-			break
 		}
 		b2 = b1.String()
 
@@ -146,11 +146,30 @@ func (monitor *Monitor) monitorProcess(processName string, errChan chan string, 
 		// reset the buffer
 		b1.Reset()
 	}
-
-	defer wg.Done()
 }
 
 func (monitor *Monitor) notifyErr(proc, server, recipient string) {
 	// send a notification to the appropriate party
+	// sender data
+	from := "<email un>"
+	password := "<email pw>"
+
+	to := []string{
+		recipient,
+	}
+
+	smtpHost := "smtp.gmail.com"
+	smtpPort := "587"
+
+	message := []byte(fmt.Sprintf("test message %s", proc))
+
+	auth := smtp.PlainAuth("", from, password, smtpHost)
+
+	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, to, message)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("email sent successfully")
 
 }
