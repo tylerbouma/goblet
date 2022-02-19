@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/smtp"
@@ -137,14 +138,34 @@ func (monitor *Monitor) monitorProcess(processName string, errChan chan string, 
 		// react to changes in status
 		if strings.Compare(b1.String(), b2) != 0 {
 			errChan <- fmt.Sprintf("something changed with %s", processName)
+			time.Sleep(time.Second * 30)
 		}
 		b2 = b1.String()
 
 		// check every second
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Second * monitor.Config.CheckFrequency)
 		counter++
 		// reset the buffer
 		b1.Reset()
+	}
+}
+
+func countLines(r io.Reader) (int, error) {
+	b := make([]byte, 32*1024)
+	count := 0
+	newLine := []byte{'\n'}
+
+	for {
+		l, err := r.Read(b)
+		count += bytes.Count(b[:l], newLine)
+
+		switch {
+		case err == io.EOF:
+			return count, nil
+
+		case err != nil:
+			return count, err
+		}
 	}
 }
 
