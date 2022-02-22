@@ -11,7 +11,6 @@ import (
 	"net/smtp"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
@@ -61,7 +60,8 @@ func main() {
 	go func() {
 		for {
 			pErr := <-pErrChan
-			go monitor.notifyErr(pErr, server, monitor.Config.Recipients)
+			// go monitor.notifyErr(pErr, server, monitor.Config.Recipients)
+			fmt.Println(pErr)
 		}
 	}()
 
@@ -116,9 +116,8 @@ func (monitor *Monitor) serverInfo() (server string, err error) {
 func (monitor *Monitor) monitorProcess(processName string, errChan chan string, wg *sync.WaitGroup) {
 	fmt.Println("monitoring for process", processName)
 
-	counter := 0
 	var b1 bytes.Buffer
-	var b2 string
+	waitFlag := true
 
 	for {
 		cmd := exec.Command("pgrep", "-l", processName)
@@ -128,26 +127,25 @@ func (monitor *Monitor) monitorProcess(processName string, errChan chan string, 
 		cmd.Start()
 		cmd.Wait()
 
-		if counter == 0 {
-			b2 = b1.String()
-			counter++
-			b1.Reset()
-			continue
+		lines, err := countLines(&b1)
+		if err != nil {
+			fmt.Printf("Error: %s\n", err.Error())
+			os.Exit(0)
 		}
-		// compare previous output to current output
-		// react to changes in status
-		if strings.Compare(b1.String(), b2) != 0 {
-			errChan <- fmt.Sprintf("something changed with %s", processName)
-			time.Sleep(time.Second * 30)
-		}
-		b2 = b1.String()
 
-		// check every second
-		time.Sleep(time.Second * monitor.Config.CheckFrequency)
-		counter++
-		// reset the buffer
-		b1.Reset()
+		if lines != 0 && waitFlag {
+			// we are making a first pass
+			// ensuring the process actually exists
+			waitFlag = false
+		} else if lines == 0 && !waitFlag {
+			fmt.Printf("Error: no process %s found running\n", processName)
+			errChan <- processName
+		}
+
 	}
+	wg.Done()
+	// keep the channel open
+	errChan <- ""
 }
 
 func countLines(r io.Reader) (int, error) {
