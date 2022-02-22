@@ -117,6 +117,7 @@ func (monitor *Monitor) monitorProcess(processName string, errChan chan string, 
 	fmt.Println("monitoring for process", processName)
 
 	var b1 bytes.Buffer
+	var baselineStatus int
 	waitFlag := true
 
 	for {
@@ -137,7 +138,9 @@ func (monitor *Monitor) monitorProcess(processName string, errChan chan string, 
 			// we are making a first pass
 			// ensuring the process actually exists
 			waitFlag = false
-		} else if lines == 0 && !waitFlag {
+			// store initial count of lines we should be looking for
+			baselineStatus = lines
+		} else if lines != baselineStatus && !waitFlag {
 			fmt.Printf("Error: no process %s found running\n", processName)
 			errChan <- processName
 		}
