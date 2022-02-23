@@ -9,7 +9,7 @@ import (
 	eventhubs "github.com/Azure/azure-event-hubs-go"
 )
 
-func sendMsg(msg string) {
+func SendMsg(msg string) {
 	tokenProvider, err := aad.NewJWTProvider(aad.JWTProviderWithEnvironmentVars())
 	if err != nil {
 		log.Fatal("failed to configure AAD JWT provider")
