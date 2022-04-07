@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"net/smtp"
 	"os"
 	"os/exec"
 	"sync"
@@ -22,23 +21,20 @@ type Monitor struct {
 	Processes []string
 	Config    struct {
 		Recipients     string        `yaml:"recipients"`
-		CheckFrequency time.Duration `yaml:"checkFreq"`
+		CheckFrequency time.Duration `yaml:"checkFrequencySeconds"`
 	}
-	writeToConsole bool
 }
 
 func main() {
 
 	defaultConfigFile := "./go-monitor.yml"
 	configFile := flag.String("c", defaultConfigFile, fmt.Sprintf("config file path, default = %s", defaultConfigFile))
-	writeToConsole := flag.Bool("o", false, "output, if true will write to console")
 	flag.Parse()
 
 	monitor, err := createMonitorFromFile(*configFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	monitor.writeToConsole = *writeToConsole
 
 	server, err := monitor.serverInfo()
 	if err != nil {
@@ -61,7 +57,7 @@ func main() {
 		for {
 			pErr := <-pErrChan
 			// go monitor.notifyErr(pErr, server, monitor.Config.Recipients)
-			fmt.Println(pErr)
+			go monitor.notifyErr(pErr, server)
 		}
 	}()
 
@@ -134,21 +130,22 @@ func (monitor *Monitor) monitorProcess(processName string, errChan chan string, 
 			os.Exit(0)
 		}
 
+		fmt.Println(lines)
+
 		if lines != 0 && waitFlag {
-			// we are making a first pass
 			// ensuring the process actually exists
 			waitFlag = false
-			// store initial count of lines we should be looking for
 			baselineStatus = lines
-		} else if lines != baselineStatus && !waitFlag {
-			fmt.Printf("Error: no process %s found running\n", processName)
+		} else if lines < baselineStatus && !waitFlag {
+			// we lost a process
+			fmt.Printf("Error: lost process %s\n", processName)
 			errChan <- processName
+			waitFlag = true
 		}
 
+		time.Sleep(time.Second * monitor.Config.CheckFrequency)
+
 	}
-	wg.Done()
-	// keep the channel open
-	errChan <- ""
 }
 
 func countLines(r io.Reader) (int, error) {
@@ -170,28 +167,10 @@ func countLines(r io.Reader) (int, error) {
 	}
 }
 
-func (monitor *Monitor) notifyErr(proc, server, recipient string) {
+func (monitor *Monitor) notifyErr(proc, server string) {
 	// send a notification to the appropriate party
 	// sender data
-	from := "<email un>"
-	password := "<email pw>"
 
-	to := []string{
-		recipient,
-	}
-
-	smtpHost := "smtp.gmail.com"
-	smtpPort := "587"
-
-	message := []byte(fmt.Sprintf("test message %s", proc))
-
-	auth := smtp.PlainAuth("", from, password, smtpHost)
-
-	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, to, message)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println("email sent successfully")
+	fmt.Println("notification sent successfully for ", proc, "on", server)
 
 }
